@@ -48,7 +48,7 @@ trigger_edge_device_task = PythonOperator(
 
 s3_key_sensor_task = S3KeySensor(
     task_id='s3_key_sensor_task',
-    bucket_key='some-prefix/2023-09-23/task-003.json',
+    bucket_key='some-prefix/{{ ds }}/task-003.json',
     bucket_name='dank-airflow',
     aws_conn_id='connect_to_s3_dank_account',
     poke_interval=60,
@@ -59,8 +59,8 @@ s3_key_sensor_task = S3KeySensor(
 
 copy_s3_file_task = S3CopyObjectOperator(
     task_id='copy_s3_file_task',
-    source_bucket_key='some-prefix/2023-09-23/task-003.json',
-    dest_bucket_key='after-copy/2023-09-23/task-003.json',
+    source_bucket_key='some-prefix/{{ ds }}/task-003.json',
+    dest_bucket_key='after-copy/{{ ds }}/task-003.json',
     source_bucket_name='dank-airflow',
     dest_bucket_name='dank-airflow',
     aws_conn_id='connect_to_s3_dank_account',
