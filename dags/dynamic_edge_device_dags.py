@@ -27,6 +27,8 @@ def download_file_from_s3(bucket, key, local_path):
     s3.download_file(bucket, key, local_path)
 
 # Check if the script is running in a cloud environment
+cloud_environment = os.environ.get('CLOUD_ENVIRONMENT')
+print(cloud_environment)
 if 'CLOUD_ENVIRONMENT' in os.environ:
     # Download the CSV file from S3 to a local path
     download_file_from_s3(S3_BUCKET, S3_KEY, LOCAL_CSV_PATH)
