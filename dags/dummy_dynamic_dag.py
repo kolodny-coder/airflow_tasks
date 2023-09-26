@@ -8,7 +8,7 @@ import os
 import boto3
 
 # Define the relative path to the CSV file
-CSV_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / 'config' / 'conf_file.csv'
+CSV_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / 'config' / 'dummy_file.csv'
 
 
 def read_edge_devices_from_csv(file_path):
@@ -35,7 +35,7 @@ default_args = {
 
 
 def create_dag(device):
-    dag_id = f"edge_device_dag_{device['id']}"
+    dag_id = f"dummy_dag_{device['id']}"
 
     dag = DAG(
         dag_id=dag_id,

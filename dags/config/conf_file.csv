@@ -1,5 +1,5 @@
-id,other_param
-device_001,value1
-device_002,value2
-device_003,value3
-device_004,value4
+id,name,location,other_property
+1,Device1,Location1,Property1
+2,Device2,Location2,Property2
+3,Device3,Location3,Property3
+4,Device4,Location4,Property4
