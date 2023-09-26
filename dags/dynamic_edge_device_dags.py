@@ -10,7 +10,7 @@ print(f'this is the local path {LOCAL_CSV_PATH}')
 
 # S3 bucket and object key for the CSV file
 S3_BUCKET = 'dank-airflow-demo'
-S3_KEY = 'path/to/edge_devices.csv'
+S3_KEY = 'config/edge_devices.csv'
 
 def read_edge_devices_from_csv(file_path):
     edge_devices = []
