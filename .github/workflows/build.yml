@@ -26,4 +26,4 @@ jobs:
 
     - name: Copy Requirements to S3
       run: |
-        aws s3 cp ./requirements s3://dank-airflow-demo/requirements.txt
+        aws s3 cp ./requirements s3://dank-airflow-demo/requirements
