@@ -1,12 +1,29 @@
-name: Build
+name: Deploy Airflow DAGs and Requirements to S3
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: ./mwaa-local-env build-image
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region:  ${{ secrets.AWS_REGION }}
+
+    - name: Copy DAGs to S3
+      run: |
+        aws s3 sync ./dags s3://dank-airflow-demo/dags
+
+    - name: Copy Requirements to S3
+      run: |
+        aws s3 cp ./requirements.txt s3://dank-airflow-demo/requirements.txt
