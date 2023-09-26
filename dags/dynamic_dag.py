@@ -35,9 +35,10 @@ default_args = {
 }
 
 
-def trigger_edge_device_request(device_id):
+def trigger_edge_device_request(device_id, **context):
     url = "http://34.234.78.46:5000/addjob"
     headers = {"Content-Type": "application/json"}
+    task_id = f"task-{context['ts_nodash']}"
     data = {
         "deviceNo": device_id,
         "start_time_stamp": "2023-09-22T10:00:00",
@@ -45,7 +46,7 @@ def trigger_edge_device_request(device_id):
         "s3Bucket": "dank-airflow",
         "prefix": "some-prefix",
         "message": "Sample message",
-        "taskId": "task-003"
+        "taskId": task_id
     }
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
@@ -68,12 +69,13 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
+            provide_context=True,
             dag=dag,
         )
 
         s3_key_sensor_task = S3KeySensor(
             task_id='s3_key_sensor_task',
-            bucket_key=f'some-prefix/{{{{ ds }}}}/task-003_{device["name"]}.json',
+            bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
             bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
             poke_interval=60,
@@ -84,8 +86,8 @@ def create_dag(device):
 
         copy_s3_file_task = S3CopyObjectOperator(
             task_id='copy_s3_file_task',
-            source_bucket_key=f'some-prefix/{{{{ ds }}}}/task-003_{device["name"]}.json',
-            dest_bucket_key=f'after-copy/{{{{ ds }}}}/task-003_{device["name"]}.json',
+            source_bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
+            dest_bucket_key=f'after-copy/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
             source_bucket_name='dank-airflow',
             dest_bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
