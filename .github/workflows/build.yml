@@ -23,7 +23,9 @@ jobs:
     - name: Copy DAGs to S3
       run: |
         aws s3 sync ./dags s3://dank-airflow-demo/dags
+        
+        
 
     - name: Copy Requirements to S3
       run: |
-        aws s3 cp ./requirements s3://dank-airflow-demo/requirements
+        aws s3 sync ./requirements s3://dank-airflow-demo/requirements
