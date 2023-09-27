@@ -82,6 +82,7 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
+            execution_timeout=timedelta(seconds=10),
             provide_context=True,  # Correct placement of provide_context
             dag=dag,
         )
@@ -91,7 +92,7 @@ def create_dag(device):
             bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
             bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
-            execution_timeout=timedelta(seconds=20),
+            execution_timeout=timedelta(seconds=10),
             poke_interval=3,
             timeout=30,
             mode='poke',
