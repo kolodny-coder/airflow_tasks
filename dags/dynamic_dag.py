@@ -82,6 +82,7 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
+            execution_timeout=timedelta(seconds=20),
             provide_context=True,  # Correct placement of provide_context
             dag=dag,
         )
