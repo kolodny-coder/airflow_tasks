@@ -36,6 +36,7 @@ default_args = {
 }
 
 
+
 def trigger_edge_device_request(device_id, **context):
     url = "http://34.234.78.46:5000/addjob"
     headers = {"Content-Type": "application/json"}
@@ -90,6 +91,7 @@ def create_dag(device):
             bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
             bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
+            execution_timeout=timedelta(seconds=20),
             poke_interval=3,
             timeout=30,
             mode='poke',
