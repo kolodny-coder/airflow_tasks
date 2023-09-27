@@ -31,7 +31,7 @@ default_args = {
     'depends_on_past': False,
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 0,
+    'retries': 1,
     'retry_delay': timedelta(minutes=2),
 }
 
@@ -91,7 +91,7 @@ def create_dag(device):
             bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
             poke_interval=3,
-            timeout=20,
+            timeout=30,
             mode='poke',
             dag=dag,
         )
