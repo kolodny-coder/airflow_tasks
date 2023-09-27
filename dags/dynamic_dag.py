@@ -1,6 +1,7 @@
 import csv
 from pathlib import Path
 from airflow import DAG
+from airflow.models import Variable
 from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
 from airflow.providers.amazon.aws.operators.s3 import S3CopyObjectOperator
 from airflow.operators.python_operator import PythonOperator
@@ -39,10 +40,22 @@ def trigger_edge_device_request(device_id, **context):
     url = "http://34.234.78.46:5000/addjob"
     headers = {"Content-Type": "application/json"}
     task_id = f"task-{context['ts_nodash']}"
+
+    execution_date = context.get('execution_date')
+    default_start_time_stamp = execution_date - timedelta(minutes=5)
+    default_end_time_stamp = execution_date
+
+    start_time_stamp_override = context['dag_run'].conf.get('start_time_stamp') if context.get('dag_run') else None
+    end_time_stamp_override = context['dag_run'].conf.get('end_time_stamp') if context.get('dag_run') else None
+
+    start_time_stamp = start_time_stamp_override or Variable.get('start_time_stamp',
+                                                                 default_start_time_stamp.isoformat())
+    end_time_stamp = end_time_stamp_override or Variable.get('end_time_stamp', default_end_time_stamp.isoformat())
+
     data = {
         "deviceNo": device_id,
-        "start_time_stamp": "2023-09-22T10:00:00",
-        "end_time_stamp": "2023-09-22T11:00:00",
+        "start_time_stamp": start_time_stamp,
+        "end_time_stamp": end_time_stamp,
         "s3Bucket": "dank-airflow",
         "prefix": "some-prefix",
         "message": "Sample message",
@@ -54,12 +67,11 @@ def trigger_edge_device_request(device_id, **context):
 
 def create_dag(device):
     dag_id = f"edge_device_dag_{device['name']}"
-
     dag = DAG(
         dag_id=dag_id,
         default_args=default_args,
         description=f'DAG for Edge Device {device["name"]}',
-        schedule_interval=timedelta(days=1),
+        schedule_interval='@hourly',  # Set to run every hour
         start_date=datetime(2023, 9, 22),
         catchup=False,
     )
@@ -69,7 +81,7 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
-            provide_context=True,
+            provide_context=True,  # Correct placement of provide_context
             dag=dag,
         )
 
