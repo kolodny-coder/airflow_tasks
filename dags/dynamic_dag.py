@@ -90,8 +90,8 @@ def create_dag(device):
             bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
             bucket_name='dank-airflow',
             aws_conn_id='connect_to_s3_dank_account',
-            poke_interval=10,
-            timeout=60,
+            poke_interval=3,
+            timeout=30,
             mode='poke',
             dag=dag,
         )
