@@ -190,8 +190,7 @@ def create_dag(device):
         start_decide >> trigger_edge_device_task
         trigger_edge_device_task >> [report_trigger_edge_device_task, s3_key_sensor_task]
         s3_key_sensor_task >> [report_s3_key_sensor_task, copy_s3_file_task]
-        copy_s3_file_task >> report_copy_s3_file_task
-        report_copy_s3_file_task >> decide  # decide task will branch to either end_success or end_failure based on decide_flow logic
+        copy_s3_file_task >> [report_copy_s3_file_task, decide]
         decide >> end_success
         decide >> end_failure
 
