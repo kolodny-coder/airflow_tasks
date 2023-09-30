@@ -36,7 +36,17 @@ default_args = {
 }
 
 
-def report_status_to_db(task_id: str, **context):
+def some_task(**context):
+    task_id = context['task_instance'].task_id
+    execution_date = context.get('logical_date', context['execution_date'])
+    dag_id = context['dag'].dag_id
+
+    # Generate a unique run_id using dag_id and execution_date
+    run_id = f"{dag_id}_{execution_date.isoformat()}"
+
+    report_status_to_db(task_id, run_id, **context)
+
+def report_status_to_db(task_id: str, run_id: str, **context):
     status_mapping = {
         "trigger_edge_device": "running_on_edge_device",
         "s3_key_sensor_task": "polling_for_file",
@@ -56,12 +66,11 @@ def report_status_to_db(task_id: str, **context):
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     sql = f"""
-    INSERT INTO task_reports (dag_id, task_id, execution_date, status)
-    VALUES (%s, %s, %s, %s)
-    """
+        INSERT INTO task_reports (dag_id, task_id, execution_date, status, run_id)
+        VALUES (%s, %s, %s, %s, %s)
+        """
 
-    # Record the status in the database before raising the error.
-    hook.run(sql, parameters=[dag_id, task_id, execution_date_str, status])
+    hook.run(sql, parameters=[dag_id, task_id, execution_date_str, status, run_id])
 
     # If status is 'failed', the reporting task itself should fail.
     if status == 'failed':
@@ -77,9 +86,17 @@ def create_reporting_task_for(task, dag):
         trigger_rule='all_done',
         dag=dag
     )
+
+
 def handle_failure(context):
     task_id = context['task_instance'].task_id
-    report_status_to_db(task_id, **context)
+    execution_date = context.get('logical_date', context['execution_date'])
+    dag_id = context['dag'].dag_id
+
+    # Generate a unique run_id using dag_id and execution_date
+    run_id = f"{dag_id}_{execution_date.isoformat()}"
+
+    report_status_to_db(task_id, run_id, **context)
 
 
 def trigger_edge_device_request(device_id, **context):
@@ -143,7 +160,7 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
-            execution_timeout=timedelta(seconds=2),
+            execution_timeout=timedelta(seconds=22),
             provide_context=True,
             dag=dag,
             on_failure_callback=handle_failure
