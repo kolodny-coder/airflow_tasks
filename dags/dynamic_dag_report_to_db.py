@@ -111,13 +111,13 @@ def trigger_edge_device_request(device_id, **context):
 
 def decide_flow(**context):
     tasks = ['trigger_edge_device', 's3_key_sensor_task', 'copy_s3_file_task']
-    states = [TaskInstance(context['dag'], task_id=task, execution_date=context['execution_date']).state for task in
-              tasks]
+    states = [TaskInstance(context['dag'].get_task(task), context['execution_date']).state for task in tasks]
 
     if all(state == 'success' for state in states):
         return 'end_success'
     else:
         return 'end_failure'
+
 
 
 def create_dag(device):
