@@ -60,11 +60,12 @@ def report_status_to_db(task_id: str, **context):
     VALUES (%s, %s, %s, %s)
     """
 
+    # Record the status in the database before raising the error.
+    hook.run(sql, parameters=[dag_id, task_id, execution_date_str, status])
+
     # If status is 'failed', the reporting task itself should fail.
     if status == 'failed':
         raise ValueError("Reporting task failed because the main task failed.")
-
-    hook.run(sql, parameters=[dag_id, task_id, execution_date_str, status])
 
 
 def create_reporting_task_for(task, dag):
@@ -78,7 +79,8 @@ def create_reporting_task_for(task, dag):
     )
 def handle_failure(context):
     task_id = context['task_instance'].task_id
-    report_status_to_db(task_id, status="failed", **context)
+    report_status_to_db(task_id, **context)
+
 
 def trigger_edge_device_request(device_id, **context):
     url = "http://34.234.78.46:5000/addjob"
@@ -141,7 +143,7 @@ def create_dag(device):
             task_id='trigger_edge_device',
             python_callable=trigger_edge_device_request,
             op_args=[device['name']],
-            execution_timeout=timedelta(seconds=22),
+            execution_timeout=timedelta(seconds=2),
             provide_context=True,
             dag=dag,
             on_failure_callback=handle_failure
