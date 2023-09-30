@@ -88,6 +88,23 @@ def create_reporting_task_for(task, dag):
     )
 
 
+def s3_key_sensor_callable(bucket_key, bucket_name, aws_conn_id, **context):
+    # Check if the task should fail
+    should_fail = context['dag_run'].conf.get('fail_s3_key_sensor_task', False) if context.get('dag_run') else False
+    if should_fail:
+        raise ValueError("Failing task 's3_key_sensor_task' as per configuration")
+
+    # Execute the S3KeySensor logic
+    sensor = S3KeySensor(
+        task_id='s3_key_sensor_task',
+        bucket_key=bucket_key,
+        bucket_name=bucket_name,
+        aws_conn_id=aws_conn_id,
+        mode='poke',
+    )
+    return sensor.execute(context=context)
+
+
 def handle_failure(context):
     task_id = context['task_instance'].task_id
     execution_date = context.get('logical_date', context['execution_date'])
@@ -100,6 +117,12 @@ def handle_failure(context):
 
 
 def trigger_edge_device_request(device_id, **context):
+    # Check if the task should fail
+    should_fail = context['dag_run'].conf.get('fail_trigger_edge_device_task', False) if context.get('dag_run') else False
+    if should_fail:
+        raise ValueError("Failing task 'trigger_edge_device_task' as per configuration")
+
+
     url = "http://34.234.78.46:5000/addjob"
     headers = {"Content-Type": "application/json"}
     task_id = f"task-{context['ts_nodash']}"
@@ -168,15 +191,12 @@ def create_dag(device):
 
         report_trigger_edge_device_task = create_reporting_task_for(trigger_edge_device_task, dag)
 
-        s3_key_sensor_task = S3KeySensor(
+        s3_key_sensor_task = PythonOperator(
             task_id='s3_key_sensor_task',
-            bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
-            bucket_name='dank-airflow',
-            aws_conn_id='connect_to_s3_dank_account',
-            execution_timeout=timedelta(seconds=22),
-            poke_interval=3,
-            timeout=30,
-            mode='poke',
+            python_callable=s3_key_sensor_callable,
+            op_args=[f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
+                     'dank-airflow', 'connect_to_s3_dank_account'],
+            provide_context=True,
             dag=dag,
         )
 
