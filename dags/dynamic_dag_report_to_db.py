@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import os
 import csv
 import requests
+import time
 
 
 POSTGRES_CONN_ID = 'postgres_status_report'
@@ -46,11 +47,13 @@ def some_task(**context):
 
     report_status_to_db(task_id, run_id, **context)
 
+
 def report_status_to_db(task_id: str, run_id: str, **context):
+    time.sleep(3)
     status_mapping = {
         "trigger_edge_device": "running_on_edge_device",
         "s3_key_sensor_task": "polling_for_file",
-        "copy_s3_file_task": "completed"
+        "copy_s3_file_task": "success"
     }
 
     dag_id = context['dag'].dag_id
@@ -58,11 +61,24 @@ def report_status_to_db(task_id: str, run_id: str, **context):
     execution_date_str = execution_date.isoformat() if execution_date else None
 
     ti: TaskInstance = context['task_instance']
-    status = status_mapping.get(task_id, "unknown_status")
 
-    # If the task instance has failed, then status is 'failed'
-    if ti.state == 'failed':
+    # Pull the XCom to check whether the trigger_edge_device_task has failed
+    trigger_edge_device_failed = ti.xcom_pull(task_ids='trigger_edge_device', key='trigger_edge_device_failed')
+    copy_s3_file_failed = ti.xcom_pull(task_ids='copy_s3_file_task', key='copy_s3_file_failed')
+    s3_key_sensor_failed = ti.xcom_pull(task_ids='s3_key_sensor_task', key='s3_key_sensor_failed')
+
+    if trigger_edge_device_failed:
         status = 'failed'
+    elif copy_s3_file_failed:
+        status = 'failed'
+    elif s3_key_sensor_failed:
+        status = 'failed'
+
+    else:
+        status = status_mapping.get(task_id, "unknown_status")
+        # If the current task instance has failed, then status is 'failed'
+        if ti.state == 'failed':
+            status = 'failed'
 
     hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
     sql = f"""
@@ -74,7 +90,7 @@ def report_status_to_db(task_id: str, run_id: str, **context):
 
     # If status is 'failed', the reporting task itself should fail.
     if status == 'failed':
-        raise ValueError("Reporting task failed because the main task failed.")
+        print('Reporting task: Main task failed.')
 
 
 def create_reporting_task_for(task, dag):
@@ -89,19 +105,27 @@ def create_reporting_task_for(task, dag):
 
 
 def s3_key_sensor_callable(bucket_key, bucket_name, aws_conn_id, **context):
-    # Check if the task should fail
-    should_fail = context['dag_run'].conf.get('fail_s3_key_sensor_task', False) if context.get('dag_run') else False
-    if should_fail:
-        raise ValueError("Failing task 's3_key_sensor_task' as per configuration")
+    try:
+        # Check if the task should fail
+        should_fail = context['dag_run'].conf.get('fail_s3_key_sensor_task', False) if context.get('dag_run') else False
+        if should_fail:
 
-    # Execute the S3KeySensor logic
-    sensor = S3KeySensor(
-        task_id='s3_key_sensor_task',
-        bucket_key=bucket_key,
-        bucket_name=bucket_name,
-        aws_conn_id=aws_conn_id,
-        mode='poke',
-    )
+            raise ValueError("Failing task 's3_key_sensor_task' as per configuration")
+
+        # Execute the S3KeySensor logic
+        sensor = S3KeySensor(
+            task_id='s3_key_sensor_task',
+            bucket_key=bucket_key,
+            bucket_name=bucket_name,
+            aws_conn_id=aws_conn_id,
+            mode='poke',
+        )
+    except Exception as e:
+        # If the task fails, push an XCom to signal the failure
+        ti: TaskInstance = context['task_instance']
+        ti.xcom_push(key='s3_key_sensor_failed', value=True)
+        raise e  # Re-raise the exception to ensure the task is marked as failed
+
     return sensor.execute(context=context)
 
 
@@ -113,42 +137,50 @@ def handle_failure(context):
     # Generate a unique run_id using dag_id and execution_date
     run_id = f"{dag_id}_{execution_date.isoformat()}"
 
-    report_status_to_db(task_id, run_id, **context)
+    # Call the function with run_id as a keyword argument
+    report_status_to_db(task_id=task_id, run_id=run_id, **context)
+
 
 
 def trigger_edge_device_request(device_id, **context):
     # Check if the task should fail
-    should_fail = context['dag_run'].conf.get('fail_trigger_edge_device_task', False) if context.get('dag_run') else False
-    if should_fail:
-        raise ValueError("Failing task 'trigger_edge_device_task' as per configuration")
+    try:
+        should_fail = context['dag_run'].conf.get('fail_trigger_edge_device_task', False) if context.get('dag_run') else False
+        if should_fail:
+            raise ValueError("Failing task 'trigger_edge_device_task' as per configuration")
 
 
-    url = "http://34.234.78.46:5000/addjob"
-    headers = {"Content-Type": "application/json"}
-    task_id = f"task-{context['ts_nodash']}"
+        url = "http://34.234.78.46:5000/addjob"
+        headers = {"Content-Type": "application/json"}
+        task_id = f"task-{context['ts_nodash']}"
 
-    execution_date = context.get('execution_date')
-    default_start_time_stamp = execution_date - timedelta(minutes=5)
-    default_end_time_stamp = execution_date
+        execution_date = context.get('execution_date')
+        default_start_time_stamp = execution_date - timedelta(minutes=5)
+        default_end_time_stamp = execution_date
 
-    start_time_stamp_override = context['dag_run'].conf.get('start_time_stamp') if context.get('dag_run') else None
-    end_time_stamp_override = context['dag_run'].conf.get('end_time_stamp') if context.get('dag_run') else None
+        start_time_stamp_override = context['dag_run'].conf.get('start_time_stamp') if context.get('dag_run') else None
+        end_time_stamp_override = context['dag_run'].conf.get('end_time_stamp') if context.get('dag_run') else None
 
-    start_time_stamp = start_time_stamp_override or Variable.get('start_time_stamp',
-                                                                 default_start_time_stamp.isoformat())
-    end_time_stamp = end_time_stamp_override or Variable.get('end_time_stamp', default_end_time_stamp.isoformat())
+        start_time_stamp = start_time_stamp_override or Variable.get('start_time_stamp',
+                                                                     default_start_time_stamp.isoformat())
+        end_time_stamp = end_time_stamp_override or Variable.get('end_time_stamp', default_end_time_stamp.isoformat())
 
-    data = {
-        "deviceNo": device_id,
-        "start_time_stamp": start_time_stamp,
-        "end_time_stamp": end_time_stamp,
-        "s3Bucket": "dank-airflow",
-        "prefix": "some-prefix",
-        "message": "Sample message",
-        "taskId": task_id
-    }
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
+        data = {
+            "deviceNo": device_id,
+            "start_time_stamp": start_time_stamp,
+            "end_time_stamp": end_time_stamp,
+            "s3Bucket": "dank-airflow",
+            "prefix": "some-prefix",
+            "message": "Sample message",
+            "taskId": task_id
+        }
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+    except Exception as e:
+        # If the task fails, push an XCom to signal the failure
+        ti: TaskInstance = context['task_instance']
+        ti.xcom_push(key='trigger_edge_device_failed', value=True)
+        raise e  # Re-raise the exception to ensure the task is marked as failed
 
 
 def decide_flow(**context):
@@ -159,6 +191,27 @@ def decide_flow(**context):
         return 'end_success'
     else:
         return 'end_failure'
+
+
+def copy_s3_file_callable(source_bucket_key, dest_bucket_key, source_bucket_name, dest_bucket_name, aws_conn_id,
+                          **context):
+    # Check if the task should fail
+    ti = context['task_instance']
+    should_fail = context['dag_run'].conf.get('fail_copy_s3_file_task', False) if context.get('dag_run') else False
+    if should_fail:
+        ti.xcom_push(key='copy_s3_file_failed', value=True)  # Push a value to XCom when the task fails
+        raise ValueError("Failing task 'copy_s3_file_task' as per configuration")
+
+    # Execute the S3CopyObjectOperator logic
+    operator = S3CopyObjectOperator(
+        task_id='copy_s3_file_task',
+        source_bucket_key=source_bucket_key,
+        dest_bucket_key=dest_bucket_key,
+        source_bucket_name=source_bucket_name,
+        dest_bucket_name=dest_bucket_name,
+        aws_conn_id=aws_conn_id,
+    )
+    return operator.execute(context=context)
 
 
 
@@ -198,18 +251,24 @@ def create_dag(device):
                      'dank-airflow', 'connect_to_s3_dank_account'],
             provide_context=True,
             dag=dag,
+            on_failure_callback=handle_failure  # Added on_failure_callback
         )
 
         report_s3_key_sensor_task = create_reporting_task_for(s3_key_sensor_task, dag)
 
-        copy_s3_file_task = S3CopyObjectOperator(
+        copy_s3_file_task = PythonOperator(
             task_id='copy_s3_file_task',
-            source_bucket_key=f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
-            dest_bucket_key=f'after-copy/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
-            source_bucket_name='dank-airflow',
-            dest_bucket_name='dank-airflow',
-            aws_conn_id='connect_to_s3_dank_account',
+            python_callable=copy_s3_file_callable,
+            op_args=[
+                f'some-prefix/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
+                f'after-copy/{device["name"]}/{{{{ ds }}}}/task-{{{{ ts_nodash }}}}_{device["name"]}.json',
+                'dank-airflow',
+                'dank-airflow',
+                'connect_to_s3_dank_account'
+            ],
+            provide_context=True,
             dag=dag,
+            on_failure_callback=handle_failure  # Added on_failure_callback
         )
 
         report_copy_s3_file_task = create_reporting_task_for(copy_s3_file_task, dag)
