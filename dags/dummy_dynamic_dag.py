@@ -1,69 +1,92 @@
-import csv
-from pathlib import Path
-from airflow import DAG
-from airflow.operators.dummy_operator import DummyOperator
-from airflow.operators.python_operator import PythonOperator
 from datetime import datetime, timedelta
-import os
-import boto3
+from airflow import DAG
+from airflow.models import Variable
+from airflow.operators.dummy import DummyOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
+from airflow.providers.amazon.aws.transfers.s3_to_s3 import S3ToS3Operator
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.utils.task_group import TaskGroup
 
-# Define the relative path to the CSV file
-CSV_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / 'config' / 'dummy_file.csv'
+from dags.utils  import get_edge_devices
+from dags.utils import report_status
+from dags.utils import check_s3_key
+from dags.utils  import trigger_device
 
-
-def read_edge_devices_from_csv(file_path):
-    edge_devices = []
-    with open(file_path, mode='r') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            edge_devices.append(row)
-    return edge_devices
-
-
-# Read the edge devices from the specified CSV path
-EDGE_DEVICES = read_edge_devices_from_csv(CSV_PATH)
-
-# DAG Definitions and other configurations
 default_args = {
     'owner': 'airflow',
-    'depends_on_past': False,
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'start_date': datetime(2023, 1, 1)
 }
 
 
-def create_dag(device):
-    dag_id = f"dummy_dag_{device['id']}"
+def _create_task_group(dag, device):
+    with TaskGroup(group_id=f"device_{device['name']}") as tg:
+        trigger_device_task = PythonOperator(
+            task_id="trigger_device",
+            python_callable=trigger_device,
+            op_args=[device["id"]]
+        )
 
+        report_trigger_task = PythonOperator(
+            task_id="report_trigger",
+            python_callable=report_status,
+            op_args=["trigger_device"],
+            provide_context=True,
+        )
+
+        check_s3_key_task = PythonOperator(
+            task_id="check_s3_key",
+            python_callable=check_s3_key,
+            op_args=[
+                f"{device['s3_key_prefix']}/{{ds}}/{device['name']}.json",
+                "my_bucket"
+            ]
+        )
+
+        report_s3_key_task = PythonOperator(
+            task_id="report_s3_key",
+            python_callable=report_status,
+            op_args=["check_s3_key"],
+            provide_context=True,
+        )
+
+        copy_s3_file_task = S3ToS3Operator(
+            task_id="copy_s3_file",
+            source_bucket_key=...,
+            dest_bucket_key=...,
+            source_bucket_name="my_bucket",
+            dest_bucket_name="my_bucket",
+            aws_conn_id="aws_default"
+        )
+
+        report_copy_task = PythonOperator(...)
+
+        return tg
+
+
+def create_dag():
     dag = DAG(
-        dag_id=dag_id,
+        "device_etl",
         default_args=default_args,
-        description=f'DAG for Edge Device {device["id"]}',
-        schedule_interval=timedelta(days=1),
-        start_date=datetime(2023, 9, 22),
-        catchup=False,
+        schedule_interval="@daily"
     )
 
     with dag:
-        start_task = DummyOperator(task_id='start')
-        print_device_task = PythonOperator(
-            task_id='print_device_name',
-            python_callable=print_edge_device_name,
-            op_args=[device['id']],
-            provide_context=True,
-        )
-        end_task = DummyOperator(task_id='end')
-        start_task >> print_device_task >> end_task
+        start = DummyOperator(task_id="start")
+
+        devices = get_edge_devices()
+
+        task_groups = []
+        for device in devices:
+            tg = _create_task_group(dag, device)
+            task_groups.append(tg)
+
+        end = DummyOperator(task_id="end")
+
+        start >> task_groups >> end
 
     return dag
 
 
-def print_edge_device_name(device_id, **kwargs):
-    print(f"Processing data for edge device: {device_id}")
-
-
-for device in EDGE_DEVICES:
-    dag = create_dag(device)
-    globals()[dag.dag_id] = dag
+dag = create_dag()
